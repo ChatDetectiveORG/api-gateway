@@ -1,0 +1,8 @@
+.docker
+.github
+pgdata
+.DS_store
+.idea
+.gitignore
+tmp
+*.log

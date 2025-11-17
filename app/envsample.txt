@@ -1,0 +1,13 @@
+TELEGRAM_BOT_TOKEN=<telegram bot API key>
+TELEGRAM_BOT_PUBLIC_URL=<url for webhook>
+TELEGRAM_BOT_WEBHOOK_PORT=<webhook port for a telegram bot>
+
+DOCKER_TARGET=dev # docker compose target
+PUBLIC_POSTGRES_PORT=7760 # port on which database will accessable on your machine
+
+POSTGRES_PORT=5432 # database port inside a docker container
+POSTGRES_USER=<database user>
+POSTGRES_PASSWORD=<database password>
+POSTGRES_DB=<database name>
+
+PROJECT_NAME=<name of a project>
