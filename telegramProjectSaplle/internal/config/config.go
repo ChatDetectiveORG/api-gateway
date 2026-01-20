@@ -1,11 +1,11 @@
 package config
 
 import (
-	"os"
+	// "os"
 
 	e "app/pkg/errors"
 
-	"github.com/joho/godotenv"
+	// "github.com/joho/godotenv"
 	"github.com/spf13/viper"
 )
 
@@ -29,12 +29,12 @@ type PostgresClientConfig struct {
 }
 
 func Load() (*Config, *e.ErrorInfo) {
-	if os.Getenv("DOCKER_TARGET") != "prod" {
-		err := godotenv.Load()
-		if err != nil {
-			return &Config{}, e.FromError(err, "Env file is not present!").WithSeverity(e.Critical)
-		}
-	}
+	// if os.Getenv("DOCKER_TARGET") != "prod" {
+	// 	err := godotenv.Load()
+	// 	if err != nil {
+	// 		return &Config{}, e.FromError(err, "Env file is not present!").WithSeverity(e.Critical)
+	// 	}
+	// }
 
 	viper.AutomaticEnv()
 
