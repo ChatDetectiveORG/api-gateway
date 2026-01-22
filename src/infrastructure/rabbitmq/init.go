@@ -5,7 +5,7 @@ import (
 	"time"
 
 	e "app/pkg/errors"
-	appcfg "app/src/application"
+	"app/src/infrastructure/config"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -19,7 +19,7 @@ var (
 //
 // Env:
 // - RABBITMQ_URL (preferred), e.g. amqp://guest:guest@localhost:5672/
-func GetClient(config *appcfg.Config) (*Client, *e.ErrorInfo) {
+func GetClient(config *config.Config) (*Client, *e.ErrorInfo) {
 	var initErr *e.ErrorInfo = e.Nil()
 
 	clientOnce.Do(func() {
@@ -55,7 +55,7 @@ func GetClient(config *appcfg.Config) (*Client, *e.ErrorInfo) {
 // InitRabbitMQ connects to RabbitMQ and ensures required topology models.
 // "Verification" here is done by idempotent declarations; if a declaration mismatches existing settings,
 // RabbitMQ will return an error (channel exception), which we surface.
-func InitRabbitMQ(config *appcfg.Config, models []Model) *e.ErrorInfo {
+func InitRabbitMQ(config *config.Config, models []Model) *e.ErrorInfo {
 	c, err := GetClient(config)
 	if !err.IsNil() {
 		return err

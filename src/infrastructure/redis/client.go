@@ -3,12 +3,12 @@ package redis
 import (
 	"time"
 
-	appcfg "app/src/application"
+	"app/src/infrastructure/config"
 
 	"github.com/gomodule/redigo/redis"
 )
 
-func newPool(config *appcfg.Config) *redis.Pool {
+func newPool(config *config.Config) *redis.Pool {
 	dial := func() (redis.Conn, error) {
 		opts := []redis.DialOption{
 			redis.DialConnectTimeout(config.RedisConfig.ConnectionTimeout),

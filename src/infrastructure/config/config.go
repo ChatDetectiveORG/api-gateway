@@ -1,4 +1,4 @@
-package app
+package config
 
 import (
 	e "app/pkg/errors"
@@ -8,10 +8,15 @@ import (
 )
 
 type Config struct {
+	RuntimeConfig        *RuntimeConfig
 	RabbitMQConfig       *RabbitMQConfig
 	PostgresConfig       *PostgresConfig
 	RedisConfig          *RedisConfig
 	TeleAPIWebhookConfig *TeleAPIWebhookConfig
+}
+
+type RuntimeConfig struct {
+	NumRoutingGorutines int
 }
 
 type RabbitMQConfig struct {
@@ -80,6 +85,9 @@ func FetchConfig() (*Config, *e.ErrorInfo) {
 		},
 		RabbitMQConfig: &RabbitMQConfig{
 			URL: viper.GetString("RABBITMQ_URL"),
+		},
+		RuntimeConfig: &RuntimeConfig{
+			NumRoutingGorutines: viper.GetInt("NUM_ROUTING_GOROUTINES"),
 		},
 	}
 

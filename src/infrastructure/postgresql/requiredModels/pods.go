@@ -8,6 +8,5 @@ type RegisteredPods struct {
 	UpdatedAt time.Time `pg:"updated_at,notnull,default:now()"`
 	PodName string
 	AcceptUpdateType string
-	UnhandledUpdates int
 	UpdatesAvailable int // summary of updates available for the pod
 }

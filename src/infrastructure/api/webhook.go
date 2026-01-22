@@ -1,13 +1,13 @@
 package api
 
 import (
-	appcfg "app/src/application"
 	e "app/pkg/errors"
 
 	tele "gopkg.in/telebot.v4"
+	"app/src/infrastructure/config"
 )
 
-func SetupWebhook(config *appcfg.Config) (*tele.Bot, *e.ErrorInfo) {
+func SetupWebhook(config *config.Config) (*tele.Bot, *e.ErrorInfo) {
 	pref := tele.Settings{
 		Token: config.TeleAPIWebhookConfig.Token,
 		Poller: &tele.Webhook{
