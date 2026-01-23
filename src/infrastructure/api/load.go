@@ -1,8 +1,10 @@
 package api
 
 import (
-	tele "gopkg.in/telebot.v4"
 	e "app/pkg/errors"
+	app "app/src/application"
+
+	tele "gopkg.in/telebot.v4"
 )
 
 func LoadHandlers(client *tele.Bot) *e.ErrorInfo {
@@ -27,9 +29,7 @@ func LoadHandlers(client *tele.Bot) *e.ErrorInfo {
 	for _, event := range handledUpdates {
 		client.Handle(
 			event,
-			func(_ tele.Context) error {
-				return nil
-			},
+			app.AddUpdateToChan,
 		)
 	}
 
