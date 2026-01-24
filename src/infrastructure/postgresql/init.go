@@ -20,9 +20,9 @@ func GetDB() *pg.DB {
 	once.Do(func() {
 		db = pg.Connect(&pg.Options{
 			Addr:     os.Getenv("DB_HOST") + ":" + os.Getenv("DB_PORT"),
-			User:     os.Getenv("DB_USER"),
-			Password: os.Getenv("DB_PASSWORD"),
-			Database: os.Getenv("DB_NAME"),
+			User:     os.Getenv("POSTGRES_USER"),
+			Password: os.Getenv("POSTGRES_PASSWORD"),
+			Database: os.Getenv("POSTGRES_DB"),
 			PoolSize: 20, // Устанавливаем разумный размер пула
 		})
 	})

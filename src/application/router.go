@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"sync"
+	"time"
 
 	e "app/pkg/errors"
 
@@ -23,22 +24,29 @@ var (
 )
 
 func InitUpdateChannel(cfg *config.Config, context context.Context, wg *sync.WaitGroup) {
-	apiUpdates = make(chan (domain.Context), 1000)
-	errors = make(chan (*e.ErrorInfo), 100)
+	apiUpdates = make(chan (domain.Context), 10000)
+	errors = make(chan (*e.ErrorInfo), 1000)
 
 	go hanleError(errors, context, wg)
 
-	for range cfg.RuntimeConfig.NumRoutingGorutines {
+	for i := 0; i < cfg.RuntimeConfig.NumRoutingGorutines; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+
+			rabbitmqChannel, err := newRabbitmqChannel(cfg)
+			if !err.IsNil() {
+				errors <- err.PushStack()
+				return
+			}
+			defer rabbitmqChannel.Close()
 
 			for {
 				select {
 				case <-context.Done():
 					return
 				case update := <-apiUpdates:
-					handleUpdate(update, errors, cfg)
+					handleUpdate(update, errors, cfg, rabbitmqChannel)
 				}
 			}
 		}()
@@ -51,7 +59,7 @@ func AddUpdateToChan(ctx domain.Context) error {
 	return nil
 }
 
-func handleUpdate(ctx domain.Context, errChan chan (*e.ErrorInfo), cfg *config.Config) {
+func handleUpdate(ctx domain.Context, errChan chan (*e.ErrorInfo), cfg *config.Config, rabbitmqChannel *amqp.Channel) {
 	updateType, err := calculaeType(ctx)
 	if !err.IsNil() {
 		errChan <- err.PushStack()
@@ -66,17 +74,18 @@ func handleUpdate(ctx domain.Context, errChan chan (*e.ErrorInfo), cfg *config.C
 
 	routingKey := fmt.Sprintf("%s:%s", destPod, updateType)
 
-	content, unwrappedError := json.Marshal(ctx)
+	// TODOO: При добавлении зеркал продумать отправку данных о боте-источнике
+	content, unwrappedError := json.Marshal(map[string]any{"update": ctx.Update()})
 	if unwrappedError != nil {
 		errChan <- e.FromError(unwrappedError, "failed to marshal update")
 		return
 	}
 
-	rabbitmqChannel, err := newRabbitmqChannel(cfg)
-	defer rabbitmqChannel.Close()
+	poblishContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
 	unwrappedError = rabbitmqChannel.PublishWithContext(
-		context.Background(),
+		poblishContext,
 		"chatdetective.events",
 		routingKey,
 		false,
@@ -96,6 +105,16 @@ func getSessionID(context domain.Context, updateType updateType) (string, *e.Err
 	update := context.Update()
 
 	if updateType == callbackQuery {
+		if update.Callback == nil {
+			return "", e.NewError("Callback is nil", "Callback is nil")
+		}
+		if update.Callback.Message == nil {
+			return "", e.NewError("Message is nil", "Message is nil")
+		}
+		if update.Callback.Message.Chat == nil {
+			return "", e.NewError("Chat is nil", "Chat is nil")
+		}
+
 		return strconv.FormatInt(update.Callback.Message.Chat.ID, 10), e.Nil()
 	}
 
@@ -113,7 +132,7 @@ func getSessionID(context domain.Context, updateType updateType) (string, *e.Err
 func getDestPod(context domain.Context, updateType updateType, cfg *config.Config) (string, *e.ErrorInfo) {
 	handlerPodT := updateTypeToPodType(updateType)
 	if handlerPodT == "" {
-		return  "", e.NewError("Invalid update type", "Update type cannot be converted to handler pod type")
+		return "", e.NewError("Invalid update type", "Update type cannot be converted to handler pod type")
 	}
 
 	if canBeHandledWithoutPatritions(updateType) {
@@ -145,13 +164,14 @@ func getDestPod(context domain.Context, updateType updateType, cfg *config.Confi
 		return "", e.FromError(unwrappedError, "failed to get session")
 
 	default:
-		exists, ununwrappedError := redis.Bool(redisConnection.Do("EXISTS", fmt.Sprintf("pods:handlers:%s", pod)))
-		if ununwrappedError != nil {
-			return "", e.FromError(ununwrappedError, fmt.Sprintf("Error checking the existence of redis key for pod %s", pod))
-		}
-
-		if !exists {
+		loadKey := fmt.Sprintf("pods:handlers:%s:load", handlerPodT)
+		_, ununwrappedError := redis.Float64(redisConnection.Do("ZSCORE", loadKey, pod))
+		switch {
+		case ununwrappedError == redis.ErrNil:
+			// Под отсутствует в ZSET (или сам ZSET не существует) — перепривязываем сессию.
 			return getLeastLoadedPodAndWriteToCashe(cfg, redisConnection, sessionID, handlerPodT)
+		case ununwrappedError != nil:
+			return "", e.FromError(ununwrappedError, fmt.Sprintf("error checking pod %s membership in redis zset %s", pod, loadKey))
 		}
 
 		redisConnection.Do("EXPIRE", fmt.Sprintf("sessions:%s", sessionID), 600)
@@ -191,7 +211,7 @@ func getLeastLoadedPod(cfg *config.Config, targetPodType handlerPodType) (string
 	}
 	defer redisConnection.Close()
 
-	key := fmt.Sprintf("pods:%s:load", targetPodType)
+	key := fmt.Sprintf("pods:handlers:%s:load", targetPodType)
 	pod, unwrappedError := redis.String(routeScript.Do(redisConnection, key))
 
 	// Если множество пустое или не существует, то ZRANGE вернёт nil, и

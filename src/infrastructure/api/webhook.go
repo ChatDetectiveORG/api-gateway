@@ -21,13 +21,9 @@ func SetupWebhook(config *config.Config) (*tele.Bot, *e.ErrorInfo) {
 
 	client, err := tele.NewBot(pref)
 	if err != nil {
+		// TODO: При добавлении зеркал продумать отправку данных о боте-источнике
 		return nil, e.FromError(err, "Failed to create bot").
-			WithSeverity(e.Critical).
-			WithData(map[string]any{
-				"token":        config.TeleAPIWebhookConfig.Token,
-				"webhook_url":  config.TeleAPIWebhookConfig.URL,
-				"webhook_port": config.TeleAPIWebhookConfig.Port,
-			})
+			WithSeverity(e.Critical)
 	}
 
 	return client, e.Nil()

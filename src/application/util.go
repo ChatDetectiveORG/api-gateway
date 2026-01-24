@@ -20,7 +20,7 @@ import (
 func calculaeType(ctx domain.Context) (updateType, *e.ErrorInfo) {
 	update := ctx.Update()
 
-	if regexp.MustCompile(`^/[a-zA-Z0-9_]{1,32}`).MatchString(update.Message.Text) {
+	if update.Message != nil &&update.Message.Text != "" && regexp.MustCompile(`^/[a-zA-Z0-9_]{1,32}`).MatchString(update.Message.Text) {
 		return slashCommand, e.Nil()
 	}
 
@@ -40,7 +40,7 @@ func calculaeType(ctx domain.Context) (updateType, *e.ErrorInfo) {
 		return shipping, e.Nil()
 	}
 
-	return "", e.NewError("Falid to calculate update type!", "").WithData(map[string]any{"update": update})
+	return "", e.NewError("Falid to calculate update type!", "")
 }
 
 func hanleError(src chan (*e.ErrorInfo), context context.Context, wg *sync.WaitGroup) {
