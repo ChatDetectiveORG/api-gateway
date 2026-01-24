@@ -111,8 +111,13 @@ func getSessionID(context domain.Context, updateType updateType) (string, *e.Err
 }
 
 func getDestPod(context domain.Context, updateType updateType, cfg *config.Config) (string, *e.ErrorInfo) {
+	handlerPodT := updateTypeToPodType(updateType)
+	if handlerPodT == "" {
+		return  "", e.NewError("Invalid update type", "Update type cannot be converted to handler pod type")
+	}
+
 	if canBeHandledWithoutPatritions(updateType) {
-		leastLoadedPod, err := getLeastLoadedPod(cfg)
+		leastLoadedPod, err := getLeastLoadedPod(cfg, handlerPodT)
 		if err != nil {
 			return "", err.PushStack()
 		}
@@ -134,30 +139,43 @@ func getDestPod(context domain.Context, updateType updateType, cfg *config.Confi
 
 	switch {
 	case unwrappedError == redis.ErrNil:
-		leastLoadedPod, err := getLeastLoadedPod(cfg)
-		if err != nil {
-			return "", err.PushStack()
-		}
-
-		_, unwrappedError = redisConnection.Do("SET", fmt.Sprintf("sessions:%s", sessionID), leastLoadedPod, "EX", 600)
-		if unwrappedError != nil {
-			return "", e.FromError(unwrappedError, "failed to set session")
-		}
-
-		return leastLoadedPod, e.Nil()
+		return getLeastLoadedPodAndWriteToCashe(cfg, redisConnection, sessionID, handlerPodT)
 
 	case unwrappedError != nil:
 		return "", e.FromError(unwrappedError, "failed to get session")
 
 	default:
+		exists, ununwrappedError := redis.Bool(redisConnection.Do("EXISTS", fmt.Sprintf("pods:handlers:%s", pod)))
+		if ununwrappedError != nil {
+			return "", e.FromError(ununwrappedError, fmt.Sprintf("Error checking the existence of redis key for pod %s", pod))
+		}
+
+		if !exists {
+			return getLeastLoadedPodAndWriteToCashe(cfg, redisConnection, sessionID, handlerPodT)
+		}
+
 		redisConnection.Do("EXPIRE", fmt.Sprintf("sessions:%s", sessionID), 600)
 
 		return pod, e.Nil()
 	}
 }
 
+func getLeastLoadedPodAndWriteToCashe(cfg *config.Config, redisConnection redis.Conn, sessionID string, targetPodType handlerPodType) (string, *e.ErrorInfo) {
+	leastLoadedPod, err := getLeastLoadedPod(cfg, targetPodType)
+	if err != nil {
+		return "", err.PushStack()
+	}
+
+	_, unwrappedError := redisConnection.Do("SET", fmt.Sprintf("sessions:%s", sessionID), leastLoadedPod, "EX", 600)
+	if unwrappedError != nil {
+		return "", e.FromError(unwrappedError, "failed to set session")
+	}
+
+	return leastLoadedPod, e.Nil()
+}
+
 // Получает наименее загруженный под
-func getLeastLoadedPod(cfg *config.Config) (string, *e.ErrorInfo) {
+func getLeastLoadedPod(cfg *config.Config, targetPodType handlerPodType) (string, *e.ErrorInfo) {
 	var routeScript = redis.NewScript(1, `
 		local pod = redis.call("ZRANGE", KEYS[1], 0, 0)[1]
 		if pod then
@@ -173,7 +191,14 @@ func getLeastLoadedPod(cfg *config.Config) (string, *e.ErrorInfo) {
 	}
 	defer redisConnection.Close()
 
-	pod, unwrappedError := redis.String(routeScript.Do(redisConnection, "pods:load"))
+	key := fmt.Sprintf("pods:%s:load", targetPodType)
+	pod, unwrappedError := redis.String(routeScript.Do(redisConnection, key))
+
+	// Если множество пустое или не существует, то ZRANGE вернёт nil, и
+	// redis.String(routeScript.Do(...)) вернёт ошибку redis.ErrNil.
+	if unwrappedError == redis.ErrNil {
+		return "", e.NewError("no pods available for given pod type (set does not exist or is empty)", fmt.Sprintf("key: %s", key))
+	}
 	if unwrappedError != nil {
 		return "", e.FromError(unwrappedError, "failed to get least loaded pod")
 	}

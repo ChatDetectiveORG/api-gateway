@@ -10,3 +10,11 @@ const (
 	shipping       updateType = "shipping"
 	businessConnectionChanged updateType = "business_connection_changed"
 )
+
+type handlerPodType string
+
+const (
+	commandsAndQueries handlerPodType = "commands"
+	businessEvents     handlerPodType = "business_events"
+	shippingPods       handlerPodType = "shipping"
+)

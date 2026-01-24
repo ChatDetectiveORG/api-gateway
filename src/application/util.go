@@ -83,3 +83,18 @@ func newRedisConnection(cfg *config.Config) (redis.Conn, *e.ErrorInfo) {
 func canBeHandledWithoutPatritions(updateType updateType) bool {
 	return updateType == slashCommand || updateType == textCommand || updateType == businessConnectionChanged
 }
+
+func updateTypeToPodType(updateType updateType) handlerPodType {
+	if updateType == slashCommand || updateType == textCommand || updateType == callbackQuery || updateType == businessConnectionChanged {
+		return commandsAndQueries
+	}
+
+	switch updateType {
+	case businessEvent:
+		return  businessEvents
+	case shipping:
+		return shippingPods
+	default:
+		return ""
+	}
+}
