@@ -66,13 +66,13 @@ func handleUpdate(ctx domain.Context, errChan chan (*e.ErrorInfo), cfg *config.C
 		return
 	}
 
-	destPod, err := getDestPod(ctx, updateType, cfg)
+	destPod, sessionID, err := getDestPod(ctx, updateType, cfg)
 	if err != nil {
 		errChan <- err.PushStack()
 		return
 	}
 
-	routingKey := fmt.Sprintf("%s:%s", destPod, updateType)
+	routingKey := fmt.Sprintf("%s:%s:%s", destPod, updateType, sessionID)
 
 	// TODOO: При добавлении зеркал продумать отправку данных о боте-источнике
 	content, unwrappedError := json.Marshal(map[string]any{"update": ctx.Update()})
@@ -129,29 +129,29 @@ func getSessionID(context domain.Context, updateType updateType) (string, *e.Err
 	return "", e.NewError("No valid session token in update", "Invalid update!")
 }
 
-func getDestPod(context domain.Context, updateType updateType, cfg *config.Config) (string, *e.ErrorInfo) {
+func getDestPod(context domain.Context, updateType updateType, cfg *config.Config) (string, string, *e.ErrorInfo) {
 	handlerPodT := updateTypeToPodType(updateType)
 	if handlerPodT == "" {
-		return "", e.NewError("Invalid update type", "Update type cannot be converted to handler pod type")
+		return "", "", e.NewError("Invalid update type", "Update type cannot be converted to handler pod type")
+	}
+
+	sessionID, err := getSessionID(context, updateType)
+	if !err.IsNil() {
+		return "", "", err
 	}
 
 	if canBeHandledWithoutPatritions(updateType) {
 		leastLoadedPod, err := getLeastLoadedPod(cfg, handlerPodT)
 		if err != nil {
-			return "", err.PushStack()
+			return "", "", err.PushStack()
 		}
 
-		return leastLoadedPod, e.Nil()
-	}
-
-	sessionID, err := getSessionID(context, updateType)
-	if !err.IsNil() {
-		return "", err
+		return leastLoadedPod, sessionID, e.Nil()
 	}
 
 	redisConnection, err := newRedisConnection(cfg)
 	if !err.IsNil() {
-		return "", err
+		return "", "", err
 	}
 	defer redisConnection.Close()
 	pod, unwrappedError := redis.String(redisConnection.Do("GET", fmt.Sprintf("sessions:%s", sessionID)))
@@ -161,7 +161,7 @@ func getDestPod(context domain.Context, updateType updateType, cfg *config.Confi
 		return getLeastLoadedPodAndWriteToCashe(cfg, redisConnection, sessionID, handlerPodT)
 
 	case unwrappedError != nil:
-		return "", e.FromError(unwrappedError, "failed to get session")
+		return "", "", e.FromError(unwrappedError, "failed to get session")
 
 	default:
 		loadKey := fmt.Sprintf("pods:handlers:%s:load", handlerPodT)
@@ -171,27 +171,27 @@ func getDestPod(context domain.Context, updateType updateType, cfg *config.Confi
 			// Под отсутствует в ZSET (или сам ZSET не существует) — перепривязываем сессию.
 			return getLeastLoadedPodAndWriteToCashe(cfg, redisConnection, sessionID, handlerPodT)
 		case ununwrappedError != nil:
-			return "", e.FromError(ununwrappedError, fmt.Sprintf("error checking pod %s membership in redis zset %s", pod, loadKey))
+			return "", "", e.FromError(ununwrappedError, fmt.Sprintf("error checking pod %s membership in redis zset %s", pod, loadKey))
 		}
 
 		redisConnection.Do("EXPIRE", fmt.Sprintf("sessions:%s", sessionID), 600)
 
-		return pod, e.Nil()
+		return pod, sessionID, e.Nil()
 	}
 }
 
-func getLeastLoadedPodAndWriteToCashe(cfg *config.Config, redisConnection redis.Conn, sessionID string, targetPodType handlerPodType) (string, *e.ErrorInfo) {
+func getLeastLoadedPodAndWriteToCashe(cfg *config.Config, redisConnection redis.Conn, sessionID string, targetPodType handlerPodType) (string, string, *e.ErrorInfo) {
 	leastLoadedPod, err := getLeastLoadedPod(cfg, targetPodType)
 	if err != nil {
-		return "", err.PushStack()
+		return "", "", err.PushStack()
 	}
 
 	_, unwrappedError := redisConnection.Do("SET", fmt.Sprintf("sessions:%s", sessionID), leastLoadedPod, "EX", 600)
 	if unwrappedError != nil {
-		return "", e.FromError(unwrappedError, "failed to set session")
+		return "", "", e.FromError(unwrappedError, "failed to set session")
 	}
 
-	return leastLoadedPod, e.Nil()
+	return leastLoadedPod, sessionID, e.Nil()
 }
 
 // Получает наименее загруженный под
