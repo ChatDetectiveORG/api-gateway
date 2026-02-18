@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strconv"
 	"sync"
 	"time"
@@ -67,19 +68,23 @@ func handleUpdate(ctx domain.Context, errChan chan (*e.ErrorInfo), cfg *config.C
 	}
 
 	destPod, sessionID, err := getDestPod(ctx, updateType, cfg)
-	if err != nil {
+	if !err.IsNil() {
 		errChan <- err.PushStack()
 		return
 	}
 
-	routingKey := fmt.Sprintf("%s:%s:%s", destPod, updateType, sessionID)
+	// RabbitMQ topic routing keys are dot-separated words, matched by '*' and '#'.
+	// We use: <podId>.<updateType>.<sessionId>
+	routingKey := fmt.Sprintf("%s.%s.%s", destPod, updateType, sessionID)
 
 	// TODOO: При добавлении зеркал продумать отправку данных о боте-источнике
-	content, unwrappedError := json.Marshal(map[string]any{"update": ctx.Update()})
+	content, unwrappedError := json.Marshal(ctx.Update())
 	if unwrappedError != nil {
 		errChan <- e.FromError(unwrappedError, "failed to marshal update")
 		return
 	}
+
+	traceID := fmt.Sprintf("%s-%d", routingKey, time.Now().UnixNano())
 
 	poblishContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -91,6 +96,8 @@ func handleUpdate(ctx domain.Context, errChan chan (*e.ErrorInfo), cfg *config.C
 		false,
 		false,
 		amqp.Publishing{
+			CorrelationId: traceID,
+			MessageId:     traceID,
 			ContentType: "application/json",
 			Body:        content,
 		},
@@ -99,10 +106,17 @@ func handleUpdate(ctx domain.Context, errChan chan (*e.ErrorInfo), cfg *config.C
 		errChan <- e.FromError(unwrappedError, "failed to publish update")
 		return
 	}
+
+	log.Printf("trace=%s published exchange=%s rk=%s", traceID, "chatdetective.events", routingKey)
 }
 
 func getSessionID(context domain.Context, updateType updateType) (string, *e.ErrorInfo) {
 	update := context.Update()
+
+	// For regular chats (commands / text), session is the chat id.
+	if update.Message != nil && update.Message.Chat != nil && (updateType == slashCommand || updateType == textCommand) {
+		return strconv.FormatInt(update.Message.Chat.ID, 10), e.Nil()
+	}
 
 	if updateType == callbackQuery {
 		if update.Callback == nil {
@@ -142,7 +156,7 @@ func getDestPod(context domain.Context, updateType updateType, cfg *config.Confi
 
 	if canBeHandledWithoutPatritions(updateType) {
 		leastLoadedPod, err := getLeastLoadedPod(cfg, handlerPodT)
-		if err != nil {
+		if !err.IsNil() {
 			return "", "", err.PushStack()
 		}
 
@@ -182,7 +196,7 @@ func getDestPod(context domain.Context, updateType updateType, cfg *config.Confi
 
 func getLeastLoadedPodAndWriteToCashe(cfg *config.Config, redisConnection redis.Conn, sessionID string, targetPodType handlerPodType) (string, string, *e.ErrorInfo) {
 	leastLoadedPod, err := getLeastLoadedPod(cfg, targetPodType)
-	if err != nil {
+	if !err.IsNil() {
 		return "", "", err.PushStack()
 	}
 

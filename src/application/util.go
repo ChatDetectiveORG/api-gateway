@@ -59,7 +59,7 @@ func hanleError(src chan (*e.ErrorInfo), context context.Context, wg *sync.WaitG
 
 func newRabbitmqChannel(cfg *config.Config) (*amqp.Channel, *e.ErrorInfo) {
 	client, err := rabbitmq.GetClient(cfg)
-	if err != nil {
+	if !err.IsNil() {
 		return nil, err
 	}
 
@@ -73,8 +73,8 @@ func newRabbitmqChannel(cfg *config.Config) (*amqp.Channel, *e.ErrorInfo) {
 
 func newRedisConnection(cfg *config.Config) (redis.Conn, *e.ErrorInfo) {
 	pool, err := redisDb.GetPool(cfg)
-	if err != nil {
-		return nil, e.FromError(err, "failed to get redis pool")
+	if !err.IsNil() {
+		return nil, err
 	}
 	
 	return pool.Get(), e.Nil()
