@@ -10,7 +10,6 @@ import (
 
 	// "app/src/infrastructure/postgresql"
 	"app/src/infrastructure/rabbitmq"
-	"app/src/infrastructure/redis"
 	"context"
 	"log"
 	"sync"
@@ -26,11 +25,6 @@ func main() {
 	// }
 
 	err := rabbitmq.InitRabbitMQ(config, rabbitmq.RequiredModels)
-	if !err.IsNil() {
-		log.Fatal(err.JSON())
-	}
-
-	err = redis.InitRedis(config)
 	if !err.IsNil() {
 		log.Fatal(err.JSON())
 	}

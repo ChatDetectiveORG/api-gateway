@@ -43,8 +43,8 @@ type RedisConfig struct {
 	Wait        bool
 
 	ConnectionTimeout time.Duration
-	ReadTimeout    time.Duration
-	WriteTimeout   time.Duration
+	ReadTimeout       time.Duration
+	WriteTimeout      time.Duration
 }
 
 type TeleAPIWebhookConfig struct {
@@ -71,17 +71,17 @@ func FetchConfig() (*Config, *e.ErrorInfo) {
 			Database: viper.GetString("POSTGRES_DB"),
 		},
 		RedisConfig: &RedisConfig{
-			Host:     viper.GetString("REDIS_HOST"),
-			Port:     viper.GetString("REDIS_PORT"),
-			Password: viper.GetString("REDIS_PASSWORD"),
-			Database: viper.GetInt("REDIS_DB"),
-			MaxIdle: viper.GetInt("REDIS_MAX_IDLE"),
-			MaxActive: viper.GetInt("REDIS_MAX_ACTIVE"),
-			IdleTimeout: viper.GetDuration("REDIS_IDLE_TIMEOUT"),
-			Wait: viper.GetBool("REDIS_WAIT"),
+			Host:              viper.GetString("REDIS_HOST"),
+			Port:              viper.GetString("REDIS_PORT"),
+			Password:          viper.GetString("REDIS_PASSWORD"),
+			Database:          viper.GetInt("REDIS_DB"),
+			MaxIdle:           viper.GetInt("REDIS_MAX_IDLE"),
+			MaxActive:         viper.GetInt("REDIS_MAX_ACTIVE"),
+			IdleTimeout:       viper.GetDuration("REDIS_IDLE_TIMEOUT"),
+			Wait:              viper.GetBool("REDIS_WAIT"),
 			ConnectionTimeout: viper.GetDuration("REDIS_CONNECTION_TIMEOUT"),
-			ReadTimeout: viper.GetDuration("REDIS_READ_TIMEOUT"),
-			WriteTimeout: viper.GetDuration("REDIS_WRITE_TIMEOUT"),
+			ReadTimeout:       viper.GetDuration("REDIS_READ_TIMEOUT"),
+			WriteTimeout:      viper.GetDuration("REDIS_WRITE_TIMEOUT"),
 		},
 		RabbitMQConfig: &RabbitMQConfig{
 			URL: viper.GetString("RABBITMQ_URL"),

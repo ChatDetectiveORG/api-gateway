@@ -20,7 +20,7 @@ import (
 func calculaeType(ctx domain.Context) (updateType, *e.ErrorInfo) {
 	update := ctx.Update()
 
-	if update.Message != nil &&update.Message.Text != "" && regexp.MustCompile(`^/[a-zA-Z0-9_]{1,32}`).MatchString(update.Message.Text) {
+	if update.Message != nil && update.Message.Text != "" && regexp.MustCompile(`^/[a-zA-Z0-9_]{1,32}`).MatchString(update.Message.Text) {
 		return slashCommand, e.Nil()
 	}
 
@@ -32,8 +32,12 @@ func calculaeType(ctx domain.Context) (updateType, *e.ErrorInfo) {
 		return callbackQuery, e.Nil()
 	}
 
+	if update.BusinessMessage != nil {
+		return businessEventNew, e.Nil()
+	}
+
 	if update.EditedBusinessMessage != nil || update.DeletedBusinessMessages != nil {
-		return businessEvent, e.Nil()
+		return businessEventEdited, e.Nil()
 	}
 
 	if update.ShippingQuery != nil || update.PreCheckoutQuery != nil {
@@ -70,13 +74,12 @@ func newRabbitmqChannel(cfg *config.Config) (*amqp.Channel, *e.ErrorInfo) {
 
 	return ch, e.Nil()
 }
-
 func newRedisConnection(cfg *config.Config) (redis.Conn, *e.ErrorInfo) {
 	pool, err := redisDb.GetPool(cfg)
 	if !err.IsNil() {
 		return nil, err
 	}
-	
+
 	return pool.Get(), e.Nil()
 }
 
@@ -85,13 +88,13 @@ func canBeHandledWithoutPatritions(updateType updateType) bool {
 }
 
 func updateTypeToPodType(updateType updateType) handlerPodType {
-	if updateType == slashCommand || updateType == textCommand || updateType == callbackQuery || updateType == businessConnectionChanged {
-		return commandsAndQueries
-	}
-
 	switch updateType {
-	case businessEvent:
-		return  businessEvents
+	case slashCommand, textCommand, callbackQuery, businessConnectionChanged:
+		return commandsAndQueries
+	case businessEventNew:
+		return businessEventsNew
+	case businessEventEdited:
+		return businessEventsEdited
 	case shipping:
 		return shippingPods
 	default:

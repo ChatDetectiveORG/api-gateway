@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"log"
 	"strconv"
 	"sync"
@@ -15,14 +16,14 @@ import (
 	"app/src/infrastructure/config"
 
 	amqp "github.com/rabbitmq/amqp091-go"
-
-	"github.com/gomodule/redigo/redis"
 )
 
 var (
 	apiUpdates chan (domain.Context)
 	errors     chan (*e.ErrorInfo)
 )
+
+const shardCount = 64
 
 func InitUpdateChannel(cfg *config.Config, context context.Context, wg *sync.WaitGroup) {
 	apiUpdates = make(chan (domain.Context), 10000)
@@ -47,7 +48,7 @@ func InitUpdateChannel(cfg *config.Config, context context.Context, wg *sync.Wai
 				case <-context.Done():
 					return
 				case update := <-apiUpdates:
-					handleUpdate(update, errors, cfg, rabbitmqChannel)
+					handleUpdate(update, errors, rabbitmqChannel)
 				}
 			}
 		}()
@@ -60,22 +61,26 @@ func AddUpdateToChan(ctx domain.Context) error {
 	return nil
 }
 
-func handleUpdate(ctx domain.Context, errChan chan (*e.ErrorInfo), cfg *config.Config, rabbitmqChannel *amqp.Channel) {
+func handleUpdate(ctx domain.Context, errChan chan (*e.ErrorInfo), rabbitmqChannel *amqp.Channel) {
 	updateType, err := calculaeType(ctx)
 	if !err.IsNil() {
 		errChan <- err.PushStack()
 		return
 	}
 
-	destPod, sessionID, err := getDestPod(ctx, updateType, cfg)
+	sessionID, err := getSessionID(ctx, updateType)
 	if !err.IsNil() {
 		errChan <- err.PushStack()
 		return
 	}
 
-	// RabbitMQ topic routing keys are dot-separated words, matched by '*' and '#'.
-	// We use: <podId>.<updateType>.<sessionId>
-	routingKey := fmt.Sprintf("%s.%s.%s", destPod, updateType, sessionID)
+	podType := updateTypeToPodType(updateType)
+	if podType == "" {
+		errChan <- e.NewError("unknown pod type for update type: "+string(updateType), "")
+		return
+	}
+
+	routingKey := string(podType) + "." + shardRoutingKey(sessionID)
 
 	// TODOO: При добавлении зеркал продумать отправку данных о боте-источнике
 	content, unwrappedError := json.Marshal(ctx.Update())
@@ -98,8 +103,12 @@ func handleUpdate(ctx domain.Context, errChan chan (*e.ErrorInfo), cfg *config.C
 		amqp.Publishing{
 			CorrelationId: traceID,
 			MessageId:     traceID,
-			ContentType: "application/json",
-			Body:        content,
+			ContentType:   "application/json",
+			Headers: amqp.Table{
+				"session_id":  sessionID,
+				"update_type": string(updateType),
+			},
+			Body: content,
 		},
 	)
 	if unwrappedError != nil {
@@ -108,6 +117,18 @@ func handleUpdate(ctx domain.Context, errChan chan (*e.ErrorInfo), cfg *config.C
 	}
 
 	log.Printf("trace=%s published exchange=%s rk=%s", traceID, "chatdetective.events", routingKey)
+}
+
+func shardRoutingKey(sessionID string) string {
+	// Создаем новый 32-битный хешер типа FNV-1a
+	h := fnv.New32a()
+	// Преобразуем строку sessionID в срез байт и записываем его в хешер
+	_, _ = h.Write([]byte(sessionID))
+	// Получаем числовое значение хеша, берём остаток от деления на количество шард (shardCount)
+	// таким образом равномерно распределяем сессии по шардам, а затем приводим к типу int
+	shard := int(h.Sum32() % uint32(shardCount))
+	// Возвращаем имя очереди в виде строки "qXX", где XX — номер шарда с ведущим нулём если он меньше 10
+	return fmt.Sprintf("q%02d", shard)
 }
 
 func getSessionID(context domain.Context, updateType updateType) (string, *e.ErrorInfo) {
@@ -141,101 +162,4 @@ func getSessionID(context domain.Context, updateType updateType) (string, *e.Err
 	}
 
 	return "", e.NewError("No valid session token in update", "Invalid update!")
-}
-
-func getDestPod(context domain.Context, updateType updateType, cfg *config.Config) (string, string, *e.ErrorInfo) {
-	handlerPodT := updateTypeToPodType(updateType)
-	if handlerPodT == "" {
-		return "", "", e.NewError("Invalid update type", "Update type cannot be converted to handler pod type")
-	}
-
-	sessionID, err := getSessionID(context, updateType)
-	if !err.IsNil() {
-		return "", "", err
-	}
-
-	if canBeHandledWithoutPatritions(updateType) {
-		leastLoadedPod, err := getLeastLoadedPod(cfg, handlerPodT)
-		if !err.IsNil() {
-			return "", "", err.PushStack()
-		}
-
-		return leastLoadedPod, sessionID, e.Nil()
-	}
-
-	redisConnection, err := newRedisConnection(cfg)
-	if !err.IsNil() {
-		return "", "", err
-	}
-	defer redisConnection.Close()
-	pod, unwrappedError := redis.String(redisConnection.Do("GET", fmt.Sprintf("sessions:%s", sessionID)))
-
-	switch {
-	case unwrappedError == redis.ErrNil:
-		return getLeastLoadedPodAndWriteToCashe(cfg, redisConnection, sessionID, handlerPodT)
-
-	case unwrappedError != nil:
-		return "", "", e.FromError(unwrappedError, "failed to get session")
-
-	default:
-		loadKey := fmt.Sprintf("pods:handlers:%s:load", handlerPodT)
-		_, ununwrappedError := redis.Float64(redisConnection.Do("ZSCORE", loadKey, pod))
-		switch {
-		case ununwrappedError == redis.ErrNil:
-			// Под отсутствует в ZSET (или сам ZSET не существует) — перепривязываем сессию.
-			return getLeastLoadedPodAndWriteToCashe(cfg, redisConnection, sessionID, handlerPodT)
-		case ununwrappedError != nil:
-			return "", "", e.FromError(ununwrappedError, fmt.Sprintf("error checking pod %s membership in redis zset %s", pod, loadKey))
-		}
-
-		redisConnection.Do("EXPIRE", fmt.Sprintf("sessions:%s", sessionID), 600)
-
-		return pod, sessionID, e.Nil()
-	}
-}
-
-func getLeastLoadedPodAndWriteToCashe(cfg *config.Config, redisConnection redis.Conn, sessionID string, targetPodType handlerPodType) (string, string, *e.ErrorInfo) {
-	leastLoadedPod, err := getLeastLoadedPod(cfg, targetPodType)
-	if !err.IsNil() {
-		return "", "", err.PushStack()
-	}
-
-	_, unwrappedError := redisConnection.Do("SET", fmt.Sprintf("sessions:%s", sessionID), leastLoadedPod, "EX", 600)
-	if unwrappedError != nil {
-		return "", "", e.FromError(unwrappedError, "failed to set session")
-	}
-
-	return leastLoadedPod, sessionID, e.Nil()
-}
-
-// Получает наименее загруженный под
-func getLeastLoadedPod(cfg *config.Config, targetPodType handlerPodType) (string, *e.ErrorInfo) {
-	var routeScript = redis.NewScript(1, `
-		local pod = redis.call("ZRANGE", KEYS[1], 0, 0)[1]
-		if pod then
-			redis.call("ZINCRBY", KEYS[1], 1, pod)
-			return pod
-		end
-		return nil
-	`)
-
-	redisConnection, err := newRedisConnection(cfg)
-	if !err.IsNil() {
-		return "", err
-	}
-	defer redisConnection.Close()
-
-	key := fmt.Sprintf("pods:handlers:%s:load", targetPodType)
-	pod, unwrappedError := redis.String(routeScript.Do(redisConnection, key))
-
-	// Если множество пустое или не существует, то ZRANGE вернёт nil, и
-	// redis.String(routeScript.Do(...)) вернёт ошибку redis.ErrNil.
-	if unwrappedError == redis.ErrNil {
-		return "", e.NewError("no pods available for given pod type (set does not exist or is empty)", fmt.Sprintf("key: %s", key))
-	}
-	if unwrappedError != nil {
-		return "", e.FromError(unwrappedError, "failed to get least loaded pod")
-	}
-
-	return pod, e.Nil()
 }
