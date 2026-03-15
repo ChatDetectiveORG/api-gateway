@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"sync"
 
-	e "app/pkg/errors"
+	e "github.com/ChatDetectiveORG/shared/errors"
 
 	"github.com/gomodule/redigo/redis"
 	amqp "github.com/rabbitmq/amqp091-go"

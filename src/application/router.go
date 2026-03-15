@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	e "app/pkg/errors"
+	e "github.com/ChatDetectiveORG/shared/errors"
 
 	"app/src/infrastructure/config"
 

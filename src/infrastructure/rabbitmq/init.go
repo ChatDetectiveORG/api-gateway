@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	e "app/pkg/errors"
+	e "github.com/ChatDetectiveORG/shared/errors"
 	"app/src/infrastructure/config"
 
 	amqp "github.com/rabbitmq/amqp091-go"

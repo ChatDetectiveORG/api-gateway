@@ -3,7 +3,7 @@ package redis
 import (
 	"sync"
 
-	e "app/pkg/errors"
+	e "github.com/ChatDetectiveORG/shared/errors"
 	"app/src/infrastructure/config"
 
 	"github.com/gomodule/redigo/redis"

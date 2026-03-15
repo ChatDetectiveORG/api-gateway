@@ -1,7 +1,7 @@
 package config
 
 import (
-	e "app/pkg/errors"
+	e "github.com/ChatDetectiveORG/shared/errors"
 	"time"
 
 	"github.com/spf13/viper"

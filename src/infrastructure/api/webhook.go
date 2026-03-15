@@ -1,7 +1,7 @@
 package api
 
 import (
-	e "app/pkg/errors"
+	e "github.com/ChatDetectiveORG/shared/errors"
 
 	tele "gopkg.in/telebot.v4"
 	"app/src/infrastructure/config"
