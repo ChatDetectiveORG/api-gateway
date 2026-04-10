@@ -3,6 +3,7 @@ module app
 go 1.23.3
 
 require (
+	github.com/ChatDetectiveORG/shared v0.1.6
 	github.com/go-pg/pg/v10 v10.15.0
 	github.com/gomodule/redigo v1.9.3
 	github.com/rabbitmq/amqp091-go v1.10.0
@@ -11,7 +12,6 @@ require (
 )
 
 require (
-	github.com/ChatDetectiveORG/shared v0.0.0-20260315130433-9501c6b260ec // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/go-pg/zerochecker v0.2.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
