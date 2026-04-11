@@ -3,7 +3,7 @@ module app
 go 1.23.3
 
 require (
-	github.com/ChatDetectiveORG/shared v0.1.6
+	github.com/ChatDetectiveORG/shared v0.1.9
 	github.com/go-pg/pg/v10 v10.15.0
 	github.com/gomodule/redigo v1.9.3
 	github.com/rabbitmq/amqp091-go v1.10.0
