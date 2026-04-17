@@ -1,9 +1,9 @@
 package app
 
 import (
-	"app/src/domain"
-	"app/src/infrastructure/config"
-	"app/src/infrastructure/rabbitmq"
+	"github.com/ChatDetectiveORG/api-gateway/src/domain"
+	"github.com/ChatDetectiveORG/api-gateway/src/infrastructure/config"
+	"github.com/ChatDetectiveORG/api-gateway/src/infrastructure/rabbitmq"
 	"context"
 	"log"
 	"regexp"
@@ -14,7 +14,7 @@ import (
 	"github.com/gomodule/redigo/redis"
 	amqp "github.com/rabbitmq/amqp091-go"
 
-	redisDb "app/src/infrastructure/redis"
+	redisDb "github.com/ChatDetectiveORG/api-gateway/src/infrastructure/redis"
 )
 
 func calculaeType(ctx domain.Context) (updateType, *e.ErrorInfo) {

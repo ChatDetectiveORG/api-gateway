@@ -1,4 +1,4 @@
-module app
+module github.com/ChatDetectiveORG/api-gateway
 
 go 1.23.3
 

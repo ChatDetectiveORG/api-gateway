@@ -4,7 +4,7 @@ import (
 	e "github.com/ChatDetectiveORG/shared/errors"
 
 	tele "gopkg.in/telebot.v4"
-	"app/src/infrastructure/config"
+	"github.com/ChatDetectiveORG/api-gateway/src/infrastructure/config"
 )
 
 func SetupWebhook(config *config.Config) (*tele.Bot, *e.ErrorInfo) {

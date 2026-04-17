@@ -1,15 +1,15 @@
 package main
 
 import (
-	app "app/src/application"
-	"app/src/infrastructure/api"
-	"app/src/infrastructure/config"
+	app "github.com/ChatDetectiveORG/api-gateway/src/application"
+	"github.com/ChatDetectiveORG/api-gateway/src/infrastructure/api"
+	"github.com/ChatDetectiveORG/api-gateway/src/infrastructure/config"
 	"os"
 	"os/signal"
 	"syscall"
 
-	// "app/src/infrastructure/postgresql"
-	"app/src/infrastructure/rabbitmq"
+	// "github.com/ChatDetectiveORG/api-gateway/src/infrastructure/postgresql"
+	"github.com/ChatDetectiveORG/api-gateway/src/infrastructure/rabbitmq"
 	"context"
 	"log"
 	"sync"

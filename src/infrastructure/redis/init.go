@@ -4,7 +4,7 @@ import (
 	"sync"
 
 	e "github.com/ChatDetectiveORG/shared/errors"
-	"app/src/infrastructure/config"
+	"github.com/ChatDetectiveORG/api-gateway/src/infrastructure/config"
 
 	"github.com/gomodule/redigo/redis"
 )

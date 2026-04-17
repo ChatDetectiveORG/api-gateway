@@ -2,7 +2,7 @@ package api
 
 import (
 	e "github.com/ChatDetectiveORG/shared/errors"
-	app "app/src/application"
+	app "github.com/ChatDetectiveORG/api-gateway/src/application"
 
 	tele "gopkg.in/telebot.v4"
 )

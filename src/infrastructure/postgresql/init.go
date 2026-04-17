@@ -5,7 +5,7 @@ import (
 	"sync"
 
 	e "github.com/ChatDetectiveORG/shared/errors"
-	// requiredModels "app/src/infrastructure/postgresql/requiredModels"
+	// requiredModels "github.com/ChatDetectiveORG/api-gateway/src/infrastructure/postgresql/requiredModels"
 
 	"github.com/go-pg/pg/v10"
 	"github.com/go-pg/pg/v10/orm"

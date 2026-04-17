@@ -1,7 +1,6 @@
 package app
 
 import (
-	"app/src/domain"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -11,9 +10,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ChatDetectiveORG/api-gateway/src/domain"
+
 	e "github.com/ChatDetectiveORG/shared/errors"
 
-	"app/src/infrastructure/config"
+	"github.com/ChatDetectiveORG/api-gateway/src/infrastructure/config"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
