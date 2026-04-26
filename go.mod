@@ -35,4 +35,7 @@ require (
 	mellium.im/sasl v0.3.1 // indirect
 )
 
-replace gopkg.in/telebot.v4 => ../forks/telebot
+replace (
+	github.com/ChatDetectiveORG/shared => ../shared
+	gopkg.in/telebot.v4 => ../forks/telebot
+)

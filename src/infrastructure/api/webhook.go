@@ -1,10 +1,9 @@
 package api
 
 import (
-	e "github.com/ChatDetectiveORG/shared/errors"
-
-	tele "gopkg.in/telebot.v4"
 	"github.com/ChatDetectiveORG/api-gateway/src/infrastructure/config"
+	e "github.com/ChatDetectiveORG/shared/errors"
+	tele "gopkg.in/telebot.v4"
 )
 
 func SetupWebhook(config *config.Config) (*tele.Bot, *e.ErrorInfo) {
@@ -16,6 +15,16 @@ func SetupWebhook(config *config.Config) (*tele.Bot, *e.ErrorInfo) {
 				PublicURL: config.TeleAPIWebhookConfig.URL,
 			},
 			MaxConnections: 100,
+			AllowedUpdates: []string{
+				"message",
+				"callback_query",
+				"shipping_query",
+				"pre_checkout_query",
+				"business_connection",
+				"business_message",
+				"edited_business_message",
+				"deleted_business_messages",
+			},
 		},
 	}
 

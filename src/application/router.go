@@ -57,6 +57,10 @@ func InitUpdateChannel(cfg *config.Config, context context.Context, wg *sync.Wai
 }
 
 func AddUpdateToChan(ctx domain.Context) error {
+	update := ctx.Update()
+	if update.PreCheckoutQuery != nil {
+		log.Printf("received precheckout update id=%s payload=%s", update.PreCheckoutQuery.ID, update.PreCheckoutQuery.Payload)
+	}
 	apiUpdates <- ctx
 
 	return nil
@@ -82,6 +86,9 @@ func handleUpdate(ctx domain.Context, errChan chan (*e.ErrorInfo), rabbitmqChann
 	}
 
 	routingKey := string(podType) + "." + shardRoutingKey(sessionID)
+	if updateType == shipping {
+		log.Printf("publishing payment update type=%s session=%s rk=%s", updateType, sessionID, routingKey)
+	}
 
 	// TODOO: При добавлении зеркал продумать отправку данных о боте-источнике
 	content, unwrappedError := json.Marshal(ctx.Update())
