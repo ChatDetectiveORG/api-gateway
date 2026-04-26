@@ -34,3 +34,5 @@ require (
 	golang.org/x/text v0.28.0 // indirect
 	mellium.im/sasl v0.3.1 // indirect
 )
+
+replace gopkg.in/telebot.v4 => ../forks/telebot

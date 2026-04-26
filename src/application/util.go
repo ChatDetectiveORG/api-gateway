@@ -1,13 +1,14 @@
 package app
 
 import (
-	"github.com/ChatDetectiveORG/api-gateway/src/domain"
-	"github.com/ChatDetectiveORG/api-gateway/src/infrastructure/config"
-	"github.com/ChatDetectiveORG/api-gateway/src/infrastructure/rabbitmq"
 	"context"
 	"log"
 	"regexp"
 	"sync"
+
+	"github.com/ChatDetectiveORG/api-gateway/src/domain"
+	"github.com/ChatDetectiveORG/api-gateway/src/infrastructure/config"
+	"github.com/ChatDetectiveORG/api-gateway/src/infrastructure/rabbitmq"
 
 	e "github.com/ChatDetectiveORG/shared/errors"
 
@@ -30,6 +31,10 @@ func calculaeType(ctx domain.Context) (updateType, *e.ErrorInfo) {
 
 	if update.Callback != nil {
 		return callbackQuery, e.Nil()
+	}
+
+	if update.BusinessConnection != nil {
+		return businessConnectionChanged, e.Nil()
 	}
 
 	if update.BusinessMessage != nil {

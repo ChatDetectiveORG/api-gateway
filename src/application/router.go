@@ -154,6 +154,16 @@ func getSessionID(context domain.Context, updateType updateType) (string, *e.Err
 		return strconv.FormatInt(update.Callback.Message.Chat.ID, 10), e.Nil()
 	}
 
+	if updateType == businessConnectionChanged {
+		if update.BusinessConnection == nil {
+			return "", e.NewError("BusinessConnection is nil", "BusinessConnection is nil")
+		}
+		if update.BusinessConnection.ID == "" {
+			return "", e.NewError("BusinessConnection id is empty", "BusinessConnection id is empty")
+		}
+		return update.BusinessConnection.ID, e.Nil()
+	}
+
 	if update.EditedBusinessMessage != nil {
 		return update.EditedBusinessMessage.BusinessConnectionID, e.Nil()
 	} else if update.DeletedBusinessMessages != nil {
