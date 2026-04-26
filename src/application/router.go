@@ -164,6 +164,16 @@ func getSessionID(context domain.Context, updateType updateType) (string, *e.Err
 		return update.BusinessConnection.ID, e.Nil()
 	}
 
+	if updateType == shipping {
+		if update.PreCheckoutQuery != nil && update.PreCheckoutQuery.Sender != nil {
+			return strconv.FormatInt(update.PreCheckoutQuery.Sender.ID, 10), e.Nil()
+		}
+		if update.ShippingQuery != nil && update.ShippingQuery.Sender != nil {
+			return strconv.FormatInt(update.ShippingQuery.Sender.ID, 10), e.Nil()
+		}
+		return "", e.NewError("No valid payment session token in update", "Invalid payment update!")
+	}
+
 	if update.EditedBusinessMessage != nil {
 		return update.EditedBusinessMessage.BusinessConnectionID, e.Nil()
 	} else if update.DeletedBusinessMessages != nil {
