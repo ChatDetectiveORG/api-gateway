@@ -9,8 +9,9 @@ import (
 	"syscall"
 
 	// "github.com/ChatDetectiveORG/api-gateway/src/infrastructure/postgresql"
-	"github.com/ChatDetectiveORG/api-gateway/src/infrastructure/rabbitmq"
 	"context"
+	"github.com/ChatDetectiveORG/api-gateway/src/infrastructure/postgresql"
+	"github.com/ChatDetectiveORG/api-gateway/src/infrastructure/rabbitmq"
 	"log"
 	"sync"
 	"time"
@@ -19,12 +20,12 @@ import (
 func main() {
 	config, _ := config.FetchConfig()
 
-	// err := postgresql.InitPostgresql()
-	// if !err.IsNil() {
-	// 	log.Fatal(err.JSON())
-	// }
+	err := postgresql.InitPostgresql()
+	if !err.IsNil() {
+		log.Fatal(err.JSON())
+	}
 
-	err := rabbitmq.InitRabbitMQ(config, rabbitmq.RequiredModels)
+	err = rabbitmq.InitRabbitMQ(config, rabbitmq.RequiredModels)
 	if !err.IsNil() {
 		log.Fatal(err.JSON())
 	}

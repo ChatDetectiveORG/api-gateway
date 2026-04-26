@@ -11,23 +11,31 @@ import (
 	"time"
 
 	"github.com/ChatDetectiveORG/api-gateway/src/domain"
+	"github.com/ChatDetectiveORG/api-gateway/src/infrastructure/postgresql"
 
 	e "github.com/ChatDetectiveORG/shared/errors"
+	models "github.com/ChatDetectiveORG/shared/postgresModels"
 
 	"github.com/ChatDetectiveORG/api-gateway/src/infrastructure/config"
 
 	amqp "github.com/rabbitmq/amqp091-go"
+	tele "gopkg.in/telebot.v4"
 )
 
 var (
-	apiUpdates chan (domain.Context)
+	apiUpdates chan IncomingUpdate
 	errors     chan (*e.ErrorInfo)
 )
 
 const shardCount = 64
 
+type IncomingUpdate struct {
+	Update   *tele.Update
+	MirrorID string
+}
+
 func InitUpdateChannel(cfg *config.Config, context context.Context, wg *sync.WaitGroup) {
-	apiUpdates = make(chan (domain.Context), 10000)
+	apiUpdates = make(chan IncomingUpdate, 10000)
 	errors = make(chan (*e.ErrorInfo), 1000)
 
 	go hanleError(errors, context, wg)
@@ -58,22 +66,30 @@ func InitUpdateChannel(cfg *config.Config, context context.Context, wg *sync.Wai
 
 func AddUpdateToChan(ctx domain.Context) error {
 	update := ctx.Update()
+	return AddTelegramUpdate(&update, "")
+}
+
+func AddTelegramUpdate(update *tele.Update, mirrorID string) error {
 	if update.PreCheckoutQuery != nil {
 		log.Printf("received precheckout update id=%s payload=%s", update.PreCheckoutQuery.ID, update.PreCheckoutQuery.Payload)
 	}
-	apiUpdates <- ctx
+	apiUpdates <- IncomingUpdate{Update: update, MirrorID: mirrorID}
 
 	return nil
 }
 
-func handleUpdate(ctx domain.Context, errChan chan (*e.ErrorInfo), rabbitmqChannel *amqp.Channel) {
-	updateType, err := calculaeType(ctx)
+func handleUpdate(incoming IncomingUpdate, errChan chan (*e.ErrorInfo), rabbitmqChannel *amqp.Channel) {
+	if incoming.Update == nil {
+		errChan <- e.NewError("update is nil", "failed to handle update").WithSeverity(e.Notice)
+		return
+	}
+	updateType, err := calculaeType(incoming.Update)
 	if !err.IsNil() {
 		errChan <- err.PushStack()
 		return
 	}
 
-	sessionID, err := getSessionID(ctx, updateType)
+	sessionID, err := getSessionID(incoming.Update, updateType)
 	if !err.IsNil() {
 		errChan <- err.PushStack()
 		return
@@ -90,8 +106,19 @@ func handleUpdate(ctx domain.Context, errChan chan (*e.ErrorInfo), rabbitmqChann
 		log.Printf("publishing payment update type=%s session=%s rk=%s", updateType, sessionID, routingKey)
 	}
 
-	// TODOO: При добавлении зеркал продумать отправку данных о боте-источнике
-	content, unwrappedError := json.Marshal(ctx.Update())
+	if incoming.MirrorID != "" && shouldMarkMirrorUsed(updateType) {
+		mirrorID, parseErr := models.ParseMirrorID(incoming.MirrorID)
+		if e.IsNonNil(parseErr) {
+			errChan <- parseErr.PushStack()
+			return
+		}
+		if markErr := models.MarkMirrorUsed(postgresql.GetDB(), mirrorID, time.Now()); e.IsNonNil(markErr) {
+			errChan <- markErr.PushStack()
+			return
+		}
+	}
+
+	content, unwrappedError := json.Marshal(incoming.Update)
 	if unwrappedError != nil {
 		errChan <- e.FromError(unwrappedError, "failed to marshal update")
 		return
@@ -115,6 +142,7 @@ func handleUpdate(ctx domain.Context, errChan chan (*e.ErrorInfo), rabbitmqChann
 			Headers: amqp.Table{
 				"session_id":  sessionID,
 				"update_type": string(updateType),
+				"mirror_id":   incoming.MirrorID,
 			},
 			Body: content,
 		},
@@ -139,9 +167,7 @@ func shardRoutingKey(sessionID string) string {
 	return fmt.Sprintf("q%02d", shard)
 }
 
-func getSessionID(context domain.Context, updateType updateType) (string, *e.ErrorInfo) {
-	update := context.Update()
-
+func getSessionID(update *tele.Update, updateType updateType) (string, *e.ErrorInfo) {
 	// For regular chats (commands / text), session is the chat id.
 	if update.Message != nil && update.Message.Chat != nil && (updateType == slashCommand || updateType == textCommand) {
 		return strconv.FormatInt(update.Message.Chat.ID, 10), e.Nil()
@@ -190,4 +216,12 @@ func getSessionID(context domain.Context, updateType updateType) (string, *e.Err
 	}
 
 	return "", e.NewError("No valid session token in update", "Invalid update!")
+}
+
+func shouldMarkMirrorUsed(updateType updateType) bool {
+	return updateType == slashCommand ||
+		updateType == textCommand ||
+		updateType == businessConnectionChanged ||
+		updateType == businessEventNew ||
+		updateType == businessEventEdited
 }

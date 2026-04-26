@@ -6,7 +6,6 @@ import (
 	"regexp"
 	"sync"
 
-	"github.com/ChatDetectiveORG/api-gateway/src/domain"
 	"github.com/ChatDetectiveORG/api-gateway/src/infrastructure/config"
 	"github.com/ChatDetectiveORG/api-gateway/src/infrastructure/rabbitmq"
 
@@ -16,11 +15,10 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 
 	redisDb "github.com/ChatDetectiveORG/api-gateway/src/infrastructure/redis"
+	tele "gopkg.in/telebot.v4"
 )
 
-func calculaeType(ctx domain.Context) (updateType, *e.ErrorInfo) {
-	update := ctx.Update()
-
+func calculaeType(update *tele.Update) (updateType, *e.ErrorInfo) {
 	if update.Message != nil && update.Message.Text != "" && regexp.MustCompile(`^/[a-zA-Z0-9_]{1,32}`).MatchString(update.Message.Text) {
 		return slashCommand, e.Nil()
 	}

@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	e "github.com/ChatDetectiveORG/shared/errors"
+	models "github.com/ChatDetectiveORG/shared/postgresModels"
 	// requiredModels "github.com/ChatDetectiveORG/api-gateway/src/infrastructure/postgresql/requiredModels"
 
 	"github.com/go-pg/pg/v10"
@@ -32,11 +33,14 @@ func GetDB() *pg.DB {
 func InitPostgresql() *e.ErrorInfo {
 	db := GetDB()
 
-	models := []interface{}{
+	requiredModels := []interface{}{
 		// (*requiredModels.LoasUpdates)(nil),
+		(*models.Telegramuser)(nil),
+		(*models.Payment)(nil),
+		(*models.Mirror)(nil),
 	}
 
-	for _, model := range models {
+	for _, model := range requiredModels {
 		err := db.Model(model).CreateTable(&orm.CreateTableOptions{
 			IfNotExists: true,
 		})

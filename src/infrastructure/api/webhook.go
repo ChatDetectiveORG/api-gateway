@@ -1,39 +1,129 @@
 package api
 
 import (
+	"context"
+	"encoding/json"
+	"log"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+
+	app "github.com/ChatDetectiveORG/api-gateway/src/application"
 	"github.com/ChatDetectiveORG/api-gateway/src/infrastructure/config"
+	"github.com/ChatDetectiveORG/api-gateway/src/infrastructure/postgresql"
 	e "github.com/ChatDetectiveORG/shared/errors"
+	models "github.com/ChatDetectiveORG/shared/postgresModels"
 	tele "gopkg.in/telebot.v4"
 )
 
 func SetupWebhook(config *config.Config) (*tele.Bot, *e.ErrorInfo) {
+	poller := &MirrorWebhookPoller{
+		Listen:    ":" + config.TeleAPIWebhookConfig.Port,
+		PublicURL: config.TeleAPIWebhookConfig.URL,
+	}
 	pref := tele.Settings{
-		Token: config.TeleAPIWebhookConfig.Token,
-		Poller: &tele.Webhook{
-			Listen: ":" + config.TeleAPIWebhookConfig.Port,
-			Endpoint: &tele.WebhookEndpoint{
-				PublicURL: config.TeleAPIWebhookConfig.URL,
-			},
-			MaxConnections: 100,
-			AllowedUpdates: []string{
-				"message",
-				"callback_query",
-				"shipping_query",
-				"pre_checkout_query",
-				"business_connection",
-				"business_message",
-				"edited_business_message",
-				"deleted_business_messages",
-			},
-		},
+		Token:  config.TeleAPIWebhookConfig.Token,
+		Poller: poller,
 	}
 
 	client, err := tele.NewBot(pref)
 	if err != nil {
-		// TODO: При добавлении зеркал продумать отправку данных о боте-источнике
 		return nil, e.FromError(err, "Failed to create bot").
 			WithSeverity(e.Critical)
 	}
 
 	return client, e.Nil()
+}
+
+var allowedWebhookUpdates = []string{
+	"message",
+	"callback_query",
+	"shipping_query",
+	"pre_checkout_query",
+	"business_connection",
+	"business_message",
+	"edited_business_message",
+	"deleted_business_messages",
+}
+
+type MirrorWebhookPoller struct {
+	Listen    string
+	PublicURL string
+}
+
+func (p *MirrorWebhookPoller) Poll(b *tele.Bot, updates chan tele.Update, stop chan struct{}) {
+	if err := b.SetWebhook(&tele.Webhook{
+		Endpoint:       &tele.WebhookEndpoint{PublicURL: p.PublicURL},
+		MaxConnections: 100,
+		AllowedUpdates: allowedWebhookUpdates,
+	}); err != nil {
+		b.OnError(err, nil)
+		return
+	}
+
+	mux := http.NewServeMux()
+	mainPath := webhookPath(p.PublicURL)
+	mux.HandleFunc(mainPath, func(w http.ResponseWriter, r *http.Request) {
+		p.handleWebhook(w, r, "")
+	})
+	mux.HandleFunc("/mirror/", p.handleMirrorWebhook)
+
+	server := &http.Server{Addr: p.Listen, Handler: mux}
+	go func() {
+		<-stop
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = server.Shutdown(ctx)
+	}()
+
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		b.OnError(err, nil)
+	}
+}
+
+func (p *MirrorWebhookPoller) handleMirrorWebhook(w http.ResponseWriter, r *http.Request) {
+	unique := strings.TrimPrefix(r.URL.Path, "/mirror/")
+	unique = strings.Trim(unique, "/")
+	if unique == "" {
+		http.NotFound(w, r)
+		return
+	}
+	mirror, err := models.FindActiveMirrorByUnique(postgresql.GetDB(), unique, time.Now())
+	if e.IsNonNil(err) {
+		log.Printf("mirror webhook lookup failed unique=%s err=%s", unique, err.JSON())
+		http.NotFound(w, r)
+		return
+	}
+	p.handleWebhook(w, r, models.MirrorIDHeaderValue(mirror.ID))
+}
+
+func (p *MirrorWebhookPoller) handleWebhook(w http.ResponseWriter, r *http.Request, mirrorID string) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	defer r.Body.Close()
+
+	var update tele.Update
+	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	if err := app.AddTelegramUpdate(&update, mirrorID); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func webhookPath(publicURL string) string {
+	parsed, err := url.Parse(publicURL)
+	if err != nil || parsed.Path == "" {
+		return "/"
+	}
+	if !strings.HasPrefix(parsed.Path, "/") {
+		return "/" + parsed.Path
+	}
+	return parsed.Path
 }
