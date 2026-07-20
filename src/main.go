@@ -18,9 +18,12 @@ import (
 )
 
 func main() {
-	config, _ := config.FetchConfig()
+	config, err := config.FetchConfig()
+	if !err.IsNil() {
+		log.Fatal(err.JSON())
+	}
 
-	err := postgresql.InitPostgresql()
+	err = postgresql.InitPostgresql()
 	if !err.IsNil() {
 		log.Fatal(err.JSON())
 	}
@@ -54,6 +57,16 @@ func main() {
 	// Ожидание сигнала завершения
 	sig := <-sigCh
 	log.Printf("Received signal %s, shutting down gracefully...", sig)
+
+	// 1. Stop accepting new webhook updates (handlers return 503, Telegram retries).
+	app.BeginShutdown()
+	// 2. Stop the webhook HTTP server (Poll observes the stop channel and shuts it down).
+	client.Stop()
+	// 3. Drain updates that were already accepted into the buffer.
+	if !app.WaitForDrain(15 * time.Second) {
+		log.Println("Update buffer not fully drained before timeout")
+	}
+	// 4. Stop routing goroutines and wait for in-flight publishes.
 	cancel()
 
 	waitCh := make(chan struct{})

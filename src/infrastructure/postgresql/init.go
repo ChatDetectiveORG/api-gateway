@@ -1,8 +1,10 @@
 package postgresql
 
 import (
+	"context"
 	"os"
 	"sync"
+	"time"
 
 	e "github.com/ChatDetectiveORG/shared/errors"
 	models "github.com/ChatDetectiveORG/shared/postgresModels"
@@ -28,6 +30,16 @@ func GetDB() *pg.DB {
 		})
 	})
 	return db
+}
+
+// Ping verifies the database connection; used by the readiness probe.
+func Ping() *e.ErrorInfo {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := GetDB().Ping(ctx); err != nil {
+		return e.FromError(err, "postgres ping failed").WithSeverity(e.Notice)
+	}
+	return e.Nil()
 }
 
 func InitPostgresql() *e.ErrorInfo {

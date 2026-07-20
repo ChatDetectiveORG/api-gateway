@@ -2,7 +2,9 @@ package api
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"net/url"
@@ -14,13 +16,15 @@ import (
 	"github.com/ChatDetectiveORG/api-gateway/src/infrastructure/postgresql"
 	e "github.com/ChatDetectiveORG/shared/errors"
 	models "github.com/ChatDetectiveORG/shared/postgresModels"
+	sharedTelegram "github.com/ChatDetectiveORG/shared/telegram"
 	tele "gopkg.in/telebot.v4"
 )
 
 func SetupWebhook(config *config.Config) (*tele.Bot, *e.ErrorInfo) {
 	poller := &MirrorWebhookPoller{
-		Listen:    ":" + config.TeleAPIWebhookConfig.Port,
-		PublicURL: config.TeleAPIWebhookConfig.URL,
+		Listen:      ":" + config.TeleAPIWebhookConfig.Port,
+		PublicURL:   config.TeleAPIWebhookConfig.URL,
+		SecretToken: config.TeleAPIWebhookConfig.Secret,
 	}
 	pref := tele.Settings{
 		Token:  config.TeleAPIWebhookConfig.Token,
@@ -48,15 +52,20 @@ var allowedWebhookUpdates = []string{
 }
 
 type MirrorWebhookPoller struct {
-	Listen    string
-	PublicURL string
+	Listen      string
+	PublicURL   string
+	SecretToken string
 }
+
+// addUpdate is an indirection over app.AddTelegramUpdate for tests.
+var addUpdate = app.AddTelegramUpdate
 
 func (p *MirrorWebhookPoller) Poll(b *tele.Bot, updates chan tele.Update, stop chan struct{}) {
 	if err := b.SetWebhook(&tele.Webhook{
 		Endpoint:       &tele.WebhookEndpoint{PublicURL: p.PublicURL},
 		MaxConnections: 100,
 		AllowedUpdates: allowedWebhookUpdates,
+		SecretToken:    p.SecretToken,
 	}); err != nil {
 		b.OnError(err, nil)
 		return
@@ -68,6 +77,8 @@ func (p *MirrorWebhookPoller) Poll(b *tele.Bot, updates chan tele.Update, stop c
 		p.handleWebhook(w, r, "")
 	})
 	mux.HandleFunc("/mirror/", p.handleMirrorWebhook)
+	mux.HandleFunc("/healthz", handleHealthz)
+	mux.HandleFunc("/readyz", handleReadyz)
 
 	server := &http.Server{Addr: p.Listen, Handler: mux}
 	go func() {
@@ -82,7 +93,28 @@ func (p *MirrorWebhookPoller) Poll(b *tele.Bot, updates chan tele.Update, stop c
 	}
 }
 
+func handleHealthz(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("ok"))
+}
+
+func handleReadyz(w http.ResponseWriter, r *http.Request) {
+	if app.IsShuttingDown() {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		return
+	}
+	if err := postgresql.Ping(); e.IsNonNil(err) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("ready"))
+}
+
 func (p *MirrorWebhookPoller) handleMirrorWebhook(w http.ResponseWriter, r *http.Request) {
+	if !p.authorizeWebhook(w, r) {
+		return
+	}
 	unique := strings.TrimPrefix(r.URL.Path, "/mirror/")
 	unique = strings.Trim(unique, "/")
 	if unique == "" {
@@ -95,10 +127,33 @@ func (p *MirrorWebhookPoller) handleMirrorWebhook(w http.ResponseWriter, r *http
 		http.NotFound(w, r)
 		return
 	}
-	p.handleWebhook(w, r, models.MirrorIDHeaderValue(mirror.ID))
+	p.handleAuthorizedWebhook(w, r, models.MirrorIDHeaderValue(mirror.ID))
+}
+
+// authorizeWebhook rejects requests that don't carry the secret token Telegram echoes
+// back for webhooks registered with secret_token. It must run before reading the body.
+func (p *MirrorWebhookPoller) authorizeWebhook(w http.ResponseWriter, r *http.Request) bool {
+	if p.SecretToken == "" {
+		// Startup validation makes the secret mandatory; this is defense in depth.
+		w.WriteHeader(http.StatusUnauthorized)
+		return false
+	}
+	provided := r.Header.Get(sharedTelegram.WebhookSecretHeader)
+	if subtle.ConstantTimeCompare([]byte(provided), []byte(p.SecretToken)) != 1 {
+		w.WriteHeader(http.StatusUnauthorized)
+		return false
+	}
+	return true
 }
 
 func (p *MirrorWebhookPoller) handleWebhook(w http.ResponseWriter, r *http.Request, mirrorID string) {
+	if !p.authorizeWebhook(w, r) {
+		return
+	}
+	p.handleAuthorizedWebhook(w, r, mirrorID)
+}
+
+func (p *MirrorWebhookPoller) handleAuthorizedWebhook(w http.ResponseWriter, r *http.Request, mirrorID string) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
@@ -110,7 +165,12 @@ func (p *MirrorWebhookPoller) handleWebhook(w http.ResponseWriter, r *http.Reque
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	if err := app.AddTelegramUpdate(&update, mirrorID); err != nil {
+	if err := addUpdate(&update, mirrorID); err != nil {
+		// Backpressure / shutdown: tell Telegram to retry later instead of dropping.
+		if errors.Is(err, app.ErrShuttingDown) || errors.Is(err, app.ErrQueueFull) {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}

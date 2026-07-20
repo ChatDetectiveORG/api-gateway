@@ -3,11 +3,13 @@ package app
 import (
 	"context"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"hash/fnv"
 	"log"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ChatDetectiveORG/api-gateway/src/domain"
@@ -25,9 +27,18 @@ import (
 var (
 	apiUpdates chan IncomingUpdate
 	errors     chan (*e.ErrorInfo)
+
+	shuttingDown atomic.Bool
 )
 
 const shardCount = 64
+
+// ErrShuttingDown is returned by AddTelegramUpdate once shutdown has started.
+var ErrShuttingDown = stderrors.New("api-gateway is shutting down")
+
+// ErrQueueFull is returned when the in-memory update buffer is saturated. The webhook
+// handler maps it to 503 so Telegram retries instead of the request hanging forever.
+var ErrQueueFull = stderrors.New("update queue is full")
 
 type IncomingUpdate struct {
 	Update   *tele.Update
@@ -70,12 +81,42 @@ func AddUpdateToChan(ctx domain.Context) error {
 }
 
 func AddTelegramUpdate(update *tele.Update, mirrorID string) error {
+	if shuttingDown.Load() {
+		return ErrShuttingDown
+	}
 	if update.PreCheckoutQuery != nil {
 		log.Printf("received precheckout update id=%s payload=%s", update.PreCheckoutQuery.ID, update.PreCheckoutQuery.Payload)
 	}
-	apiUpdates <- IncomingUpdate{Update: update, MirrorID: mirrorID}
+	select {
+	case apiUpdates <- IncomingUpdate{Update: update, MirrorID: mirrorID}:
+		return nil
+	default:
+		return ErrQueueFull
+	}
+}
 
-	return nil
+// BeginShutdown stops accepting new webhook updates. Already-buffered updates keep
+// being routed until the context passed to InitUpdateChannel is cancelled.
+func BeginShutdown() {
+	shuttingDown.Store(true)
+}
+
+// IsShuttingDown reports whether shutdown has started (used by the readiness probe).
+func IsShuttingDown() bool {
+	return shuttingDown.Load()
+}
+
+// WaitForDrain blocks until the update buffer is empty or the timeout elapses.
+// Returns true when the buffer was fully drained.
+func WaitForDrain(timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if len(apiUpdates) == 0 {
+			return true
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return len(apiUpdates) == 0
 }
 
 func handleUpdate(incoming IncomingUpdate, errChan chan (*e.ErrorInfo), rabbitmqChannel *amqp.Channel) {

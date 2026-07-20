@@ -1,8 +1,11 @@
 package config
 
 import (
-	e "github.com/ChatDetectiveORG/shared/errors"
+	"strings"
 	"time"
+
+	e "github.com/ChatDetectiveORG/shared/errors"
+	sharedTelegram "github.com/ChatDetectiveORG/shared/telegram"
 
 	"github.com/spf13/viper"
 )
@@ -48,20 +51,24 @@ type RedisConfig struct {
 }
 
 type TeleAPIWebhookConfig struct {
-	URL   string
-	Port  string
-	Token string
+	URL    string
+	Port   string
+	Token  string
+	Secret string
 }
 
 // Fetches config from environment variables
 func FetchConfig() (*Config, *e.ErrorInfo) {
 	viper.AutomaticEnv()
+	viper.SetDefault("TELEGRAM_BOT_WEBHOOK_PORT", "6002")
+	viper.SetDefault("NUM_ROUTING_GOROUTINES", 4)
 
 	config := &Config{
 		TeleAPIWebhookConfig: &TeleAPIWebhookConfig{
-			URL:   viper.GetString("TELEGRAM_BOT_PUBLIC_URL"),
-			Port:  viper.GetString("TELEGRAM_BOT_WEBHOOK_PORT"),
-			Token: viper.GetString("TELEGRAM_BOT_TOKEN"),
+			URL:    viper.GetString("TELEGRAM_BOT_PUBLIC_URL"),
+			Port:   viper.GetString("TELEGRAM_BOT_WEBHOOK_PORT"),
+			Token:  viper.GetString("TELEGRAM_BOT_TOKEN"),
+			Secret: viper.GetString(sharedTelegram.WebhookSecretEnv),
 		},
 		PostgresConfig: &PostgresConfig{
 			Host:     viper.GetString("POSTGRES_HOST"),
@@ -91,5 +98,45 @@ func FetchConfig() (*Config, *e.ErrorInfo) {
 		},
 	}
 
+	if err := validateConfig(config); e.IsNonNil(err) {
+		return nil, err
+	}
+
 	return config, e.Nil()
+}
+
+// validateConfig fails fast on missing required configuration so the gateway never
+// starts half-configured (e.g. webhook without authentication).
+func validateConfig(config *Config) *e.ErrorInfo {
+	var missing []string
+
+	if config.TeleAPIWebhookConfig.Token == "" {
+		missing = append(missing, "TELEGRAM_BOT_TOKEN")
+	}
+	if config.TeleAPIWebhookConfig.URL == "" {
+		missing = append(missing, "TELEGRAM_BOT_PUBLIC_URL")
+	}
+	if config.TeleAPIWebhookConfig.Secret == "" {
+		missing = append(missing, sharedTelegram.WebhookSecretEnv)
+	}
+	if config.RabbitMQConfig.URL == "" {
+		missing = append(missing, "RABBITMQ_URL")
+	}
+	if config.PostgresConfig.Host == "" {
+		missing = append(missing, "POSTGRES_HOST")
+	}
+
+	if len(missing) > 0 {
+		return e.NewError(
+			"missing required environment variables: "+strings.Join(missing, ", "),
+			"invalid api-gateway configuration",
+		).WithSeverity(e.Critical)
+	}
+	if config.RuntimeConfig.NumRoutingGorutines <= 0 {
+		return e.NewError(
+			"NUM_ROUTING_GOROUTINES must be positive",
+			"invalid api-gateway configuration",
+		).WithSeverity(e.Critical)
+	}
+	return e.Nil()
 }
