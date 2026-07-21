@@ -56,19 +56,19 @@ func InitUpdateChannel(cfg *config.Config, context context.Context, wg *sync.Wai
 		go func() {
 			defer wg.Done()
 
-			rabbitmqChannel, err := newRabbitmqChannel(cfg)
+			publisher, err := newRoutingPublisher(cfg)
 			if !err.IsNil() {
 				errors <- err.PushStack()
 				return
 			}
-			defer rabbitmqChannel.Close()
+			defer publisher.close()
 
 			for {
 				select {
 				case <-context.Done():
 					return
 				case update := <-apiUpdates:
-					handleUpdate(update, errors, rabbitmqChannel)
+					handleUpdate(update, errors, publisher)
 				}
 			}
 		}()
@@ -119,7 +119,7 @@ func WaitForDrain(timeout time.Duration) bool {
 	return len(apiUpdates) == 0
 }
 
-func handleUpdate(incoming IncomingUpdate, errChan chan (*e.ErrorInfo), rabbitmqChannel *amqp.Channel) {
+func handleUpdate(incoming IncomingUpdate, errChan chan (*e.ErrorInfo), publisher *routingPublisher) {
 	if incoming.Update == nil {
 		errChan <- e.NewError("update is nil", "failed to handle update").WithSeverity(e.Notice)
 		return
@@ -170,12 +170,10 @@ func handleUpdate(incoming IncomingUpdate, errChan chan (*e.ErrorInfo), rabbitmq
 	poblishContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	unwrappedError = rabbitmqChannel.PublishWithContext(
+	unwrappedError = publisher.publish(
 		poblishContext,
 		"chatdetective.events",
 		routingKey,
-		false,
-		false,
 		amqp.Publishing{
 			CorrelationId: traceID,
 			MessageId:     traceID,

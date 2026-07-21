@@ -73,3 +73,16 @@ func InitRabbitMQ(config *config.Config, models []Model) *e.ErrorInfo {
 
 	return e.Nil()
 }
+
+// Ping opens and closes a channel on the singleton client (for readiness probes).
+func Ping() *e.ErrorInfo {
+	if client == nil {
+		return e.NewError("rabbitmq client is not initialized", "rabbitmq ping failed").WithSeverity(e.Critical)
+	}
+	ch, err := client.Channel()
+	if err != nil {
+		return e.FromError(err, "rabbitmq ping failed").WithSeverity(e.Critical)
+	}
+	_ = ch.Close()
+	return e.Nil()
+}

@@ -14,6 +14,7 @@ import (
 	app "github.com/ChatDetectiveORG/api-gateway/src/application"
 	"github.com/ChatDetectiveORG/api-gateway/src/infrastructure/config"
 	"github.com/ChatDetectiveORG/api-gateway/src/infrastructure/postgresql"
+	"github.com/ChatDetectiveORG/api-gateway/src/infrastructure/rabbitmq"
 	e "github.com/ChatDetectiveORG/shared/errors"
 	models "github.com/ChatDetectiveORG/shared/postgresModels"
 	sharedTelegram "github.com/ChatDetectiveORG/shared/telegram"
@@ -104,6 +105,10 @@ func handleReadyz(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := postgresql.Ping(); e.IsNonNil(err) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		return
+	}
+	if err := rabbitmq.Ping(); e.IsNonNil(err) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		return
 	}
